@@ -1,0 +1,40 @@
+[
+   {
+      "Nombre": "a",
+      "Clave": "c7f58ad66746d41ac5f2d5ce89f58a0bfd62636dc1977e21edab24de10c5ed2a",
+      "Inversiones": {
+         "doge": {
+            "cifrado": "877d3b20670acc2fbc192efcc1cd3b3168082d1390a5c87a884c5e57b174f855",
+            "nonce": "4f461347d510c961389d1bee",
+            "salt": "3a57697ef2a58b455d8f4aedd76962ac"
+         },
+         "auron": {
+            "cifrado": "8a23f586ee0df4fcc69b75b490ec3880abf7b81018879f22e118f729e693",
+            "nonce": "fbff3ce54acfdace96bbe3d0",
+            "salt": "745e9dfa871b180cdc9fa24be3f02442"
+         },
+         "damn": {
+            "cifrado": "88201e441c4f7282df11adfe465c5e4bbe60fe2adee5d3983c8064bd5230",
+            "nonce": "a32ff201fa3261fedbb3cbb1",
+            "salt": "077acfdb90f4562793909ee7ec1d7c49"
+         },
+         "puff": {
+            "cifrado": "dfb75e25cffa04293c5a22a525f8544fe100e787dfbf12f579c041764c5d",
+            "nonce": "47e39e64d5229d05785bf529",
+            "salt": "81bc91f94e7a6fc3c51b35e039ab137d"
+         },
+         "Bit": {
+            "cifrado": "b83c07c558a25fec86fa2cc799dcec5d92ef97a81272e68054b97e0fdfb51a",
+            "nonce": "9b49efebd4d98ff8eb09ac32",
+            "salt": "b81269449854dd00c2f9915e602a72f1"
+         },
+         "Ethereum": {
+            "cifrado": "e64f4eeb5e7dd806a9a65ba7bcea867284f84666405e0d75cf7d3f898a579ea190c963",
+            "nonce": "4efc5ad098290360f5316c77",
+            "salt": "b2b20452278d9390c679204ef6b8eb8e"
+         }
+      },
+      "Salt": "e5a773f767298b61b0596e84620b38c5",
+      "Nonce": null
+   }
+]
