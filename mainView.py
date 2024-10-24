@@ -44,6 +44,7 @@ class CryptoMartinApp:
             self.username = username_entry.get()
             password = password_entry.get()
             if verificar_usuario(self.username, password):
+                
                 messagebox.showinfo("Login", "Acceso exitoso!")
                 self.portfolio_screen()
             else:
