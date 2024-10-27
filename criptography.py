@@ -1,113 +1,156 @@
 
 import os
 import json
+import base64
+import hashlib
 from json_pathh import data_file
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives import hashes
 
 ''' Funciones de cifrado y descifrado '''
-# Funcion para crear el resumen de la contraseña
-def hash(contraseña):
-    # Generar un salt aleatorio
-    salt_random = os.urandom(16)
-    # Derivar la clave a partir de la contraseña y el salt
-    kdf = Scrypt(
-        salt=salt_random,
-        length=32,
-        n=2 ** 14,
-        r=8,
-        p=1,
+
+#Función para crear par de claves asimétricas (pública y privada)
+def generar_par_de_claves():
+    print("PROCESO DE GENERACIÓN CLAVES PÚBLICA Y PRIVADA:")
+    print("-------------------------------------------------------")
+    print("Clave pública: Almacenada y encriptada en DB")
+    print("Clave privada: Almacenada en el ordenador del usuario sin encriptar")
+    print("USANDO RSA generamos claves")
+    clave_privada = rsa.generate_private_key(
+        public_exponent=65537, #Nímero comun para generar claves por ser primo y más eficiente.
+        key_size=2048,
     )
-    # convertir la clave y el salt a hex
-    clave_d = kdf.derive(bytes(contraseña, "utf-8"))
-    clave = clave_d.hex()
-    salt = salt_random.hex()
-    return salt, clave
+    print(f"CLAVE PRIVADA GENERADA:{clave_privada}")
+    
+    # Genero la clave pública a partir de la privada
+    clave_publica = clave_privada.public_key()
+    print(f"CLAVE PUBLICA GENERADA:{clave_publica}")
 
-# Funcion para verificar que el usuario y la contraseña son correctos
-def verify_hash(username, contraseña):
-    # Obtener el salt y la contraseña del usuario
-    salt, contra = get_user_salt_pw(username)
-    # Convertir el salt y la contraseña a bytes
-    salt_b = bytes.fromhex(salt)
-    contra_b = bytes.fromhex(contra)
-    # derivar la clave a partir de la contraseña y el salt
-    kdf = Scrypt(
-        salt=salt_b,
-        length=32,
-        n=2 ** 14,
-        r=8,
-        p=1,
+    # Serialización de las claves en formato PEM (Se serializa para poder transmitir o guardar)
+    clave_privada_pem = clave_privada.private_bytes(
+        encoding=serialization.Encoding.PEM, #PEM códifica datos binerios en ASCII
+        format=serialization.PrivateFormat.PKCS8, #Estándar de almacenamiento claves privadas
+        encryption_algorithm=serialization.NoEncryption()#No la ciframos porque la privada se va a guardar en el ordenador del usuario
     )
-    kdf.verify(bytes(contraseña, "utf-8"), contra_b)
-    return salt, contra
+    
+    clave_publica_pem = clave_publica.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    print("¡Par de claves generadas con éxito!")
+    print("-------------------------------------------------------")
+    return clave_privada_pem, clave_publica_pem
 
-# Funcion para devolver el salt y el resumen de la contraseña
-def get_user_salt_pw(username):
-    with open(data_file, "r", encoding="utf-8", newline="") as df:
-        temp = json.load(df)
-    for key in temp:
-        if username == key["Nombre"]:
-            return key["Salt"], key["Clave"]
-    raise Exception("El usuario no existe")
+# Función para cifrar datos con la clave pública del usuario
+def cifrar_con_clave_publica(clave_publica_pem, datos):
+    print("PROCESO DE CIFRADO CON CLAVE PÚBLICA:")
+    print("-------------------------------------------------------")
+    # Cargar la clave pública desde PEM
+    clave_publica = serialization.load_pem_public_key(clave_publica_pem)
+    print("Datos a cifrar:")
+    print(datos)
 
-def insert_data(username, salt, hash, investments, Nonce):
-    item_data = {}
+    # Cifrar los datos usando la clave pública
+    datos_cifrados = clave_publica.encrypt(
+        datos,
+        padding.OAEP( #OAEP combina entrada con cadena aleatoria, produce textos cifrados diferentes cada vez
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+    print(f"¡Datos cifrados con éxito!: {datos_cifrados}")
+    print("-------------------------------------------------------")
+    # Codificar los datos cifrados en base64 para almacenarlos o transmitirlos más fácilmente
+    return base64.b64encode(datos_cifrados)
+
+def descifrar_con_clave_privada(ruta_clave_privada, datos_cifrados):
     try:
-        with open(data_file, "r", encoding="utf-8", newline="") as df:
-            temp = json.load(df)
-    except FileNotFoundError:
-        temp = []
+        # Verifico si la ruta de la clave privada existe
+        if not os.path.exists(ruta_clave_privada):
+            print(f"Error: La ruta de la clave privada '{ruta_clave_privada}' no existe.")
+            return None
+        
+        print(f"Cargando la clave privada desde: {ruta_clave_privada}")
+        
+        # Cargo la clave privada
+        with open(ruta_clave_privada, 'rb') as archivo_privado:
+            clave_privada = serialization.load_pem_private_key(
+                archivo_privado.read(),
+                password=None
+            )
 
-    item_data["Nombre"] = username
-    item_data["Clave"] = hash
-    # Diccionario con las criptomonedas y transacciones
-    item_data["Inversiones"] = investments  
-    item_data["Salt"] = salt
-    item_data["Nonce"] = Nonce
-    temp.append(item_data)
+        # Decodifico los datos cifrados
+        try:
+            datos_cifrados = base64.b64decode(datos_cifrados)
+        except Exception as e:
+            print(f"Error al decodificar los datos cifrados: {e}")
+            return None
+
+        print(f"Datos cifrados: {datos_cifrados}")  # Mostrar datos cifrados para depuración
+        
+        # Descifro los datos usando la clave privada
+        try:
+            datos_descifrados = clave_privada.decrypt(
+                datos_cifrados,
+                padding.OAEP(
+                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                    algorithm=hashes.SHA256(),
+                    label=None
+                )
+            )
+        except ValueError as e:
+            print(f"Error durante el descifrado: {e}")
+            return None
+
+        if not isinstance(datos_descifrados, bytes):
+            print("Error: Los datos descifrados no son del tipo esperado (bytes).")
+            return None
+
+        return datos_descifrados
     
-    with open(data_file, "w") as df:
-        json.dump(temp, df, indent=3)
-
-"""Funcion para agregar un libro al fichero json"""
-def insert_cripto(username, cripto, cantidad, valor, pw):
-    item_data = {}
+    except Exception as e:
+        print(f"Se produjo un error: {e}")
+        return None
     
-    # Derivar una clave a partir de la contraseña
-    salt, clave_hex = hash(pw)
-
-    # Convertir la clave de hexadecimal a bytes
-    clave = bytes.fromhex(clave_hex)
-
-    # Crear una instancia de ChaCha20Poly1305 con la clave derivada
-    chacha = ChaCha20Poly1305(clave)
-
-    # Generar un nonce aleatorio
-    nonce = os.urandom(12)
-
-    # Convertir la información de criptomoneda en un mensaje para cifrar
-    mensaje = f"{cripto},{cantidad},{valor}".encode("utf-8")
-
-    # Cifrar el mensaje
-    cifrado = chacha.encrypt(nonce, mensaje, None)
-
-    with open(data_file, "r", encoding="utf-8", newline="") as df:
-         temp = json.load(df)
-    for i in range(len(temp)):
-        diccionario = temp[i]
-        if diccionario["Nombre"] == username:
-            item_data = temp.pop(i)
-            item_data["Inversiones"][cripto] = {
-                "cifrado": cifrado.hex(),  # Almacenar el cifrado en hexadecimal
-                "nonce": nonce.hex(),  # Almacenar el nonce
-                "salt": salt  # Almacenar el salt usado para derivar la clave
-            }
-            break
+# Función para hashear la contraseña
+def hash_password(password):
+    print("PROCESO DE GENERAR HASH PARA PASSWORD NUEVA:")
+    print("-------------------------------------------------------")
+    print("Algoritmo de hash utilizado: PBKDF2-HMAC con SHA-256")
+    print(f"Longitud de la contraseña ingresada: {len(password)} caracteres")
     
-    temp.append(item_data)
-    with open(data_file, "w") as df:
-        json.dump(temp, df, indent=3)
+    salt = os.urandom(16)
+    print(f"Salt generado (16 bytes): {salt}")
 
-    descifrado = chacha.decrypt(nonce, cifrado, None)
-    return descifrado.decode("utf-8")
+    hashed_pw = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 100000)
+    print("Operación de hash realizada con 100000 iteraciones")
+
+    encoded_salt = base64.b64encode(salt).decode('utf-8')
+    encoded_hashed_pw = base64.b64encode(hashed_pw).decode('utf-8')
+    print(f"Salt en Base64: {encoded_salt}")
+    print(f"Contraseña hasheada en Base64: {encoded_hashed_pw}")
+    print("-------------------------------------------------------")
+
+    return encoded_salt, encoded_hashed_pw
+
+#Función para hasherar contraseña con un salt dado (Para verificar una contraseña)
+
+def hash_password_salt(password, salt):
+    print("PROCESO DE GENERAR HASH CON SALT DADO:")
+    print("-------------------------------------------------------")
+    print(f"Salt DB: {salt}")
+
+    salt = base64.b64decode(salt.encode('utf-8'))
+    print(f"Salt decodificado (binario): {salt}")
+
+    print("Algoritmo de hash utilizado: PBKDF2-HMAC con SHA-256")
+    hashed_pw = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 100000) #100K Iteraciones
+    print("Operación de hash realizada con pass externa y 100,000 iteraciones")
+    print(f"Hashed Password Externa: {hashed_pw}")
+    print("-------------------------------------------------------")
+    return base64.b64encode(hashed_pw).decode('utf-8')

@@ -1,5 +1,6 @@
 import sqlite3
 import customtkinter as ctk
+import re
 from tkinter import messagebox
 from dataBaseScript import crear_base_datos, insertar_usuario, verificar_usuario, insertar_transaccion, obtener_transacciones, es_contrasena_robusta
 
@@ -14,10 +15,10 @@ class CryptoMartinApp:
         
         self.current_frame = None
         
-        # Crear base de datos y tablas
+        # Creo base de datos y tabla (si ya existe no se crea otra vez)
         crear_base_datos()
 
-        # Iniciar en la pantalla de login
+        # Inicia la pantalla de login
         self.login_screen()
 
     def cambiar_frame(self, nuevo_frame):
@@ -43,7 +44,8 @@ class CryptoMartinApp:
         def acceso():
             self.username = username_entry.get()
             password = password_entry.get()
-            if verificar_usuario(self.username, password):
+            #Función de dataBase para verificar la existencia del usuario/contraseña en la base de datos
+            if verificar_usuario(self.username, password): 
                 
                 messagebox.showinfo("Login", "Acceso exitoso!")
                 self.portfolio_screen()
@@ -75,14 +77,25 @@ class CryptoMartinApp:
         def registrar():
             correo = correo_entry.get()
             password_reg = password_reg_entry.get()
+
+            #RegEx para correo
+            correo_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+
             if correo and password_reg:
+                if not re.match(correo_regex, correo):  # Comprobar si el correo es válido
+                    messagebox.showerror("Error", "Debe introducir un correo electrónico válido.")
+                    return
                 if es_contrasena_robusta(password_reg):
                     try:
                         insertar_usuario(correo, password_reg)
                         messagebox.showinfo("Registro", "Registrado con éxito!")
                         self.login_screen()
                     except Exception as e:
-                        messagebox.showerror("Error", str(e))
+                        error_str = str(e)
+                        if(error_str.startswith("UNIQUE")):
+                            messagebox.showerror("Error", "Usuario ya registrado")
+                        else:
+                            messagebox.showerror("Error", str(e))
                 else:
                     messagebox.showwarning("Error","La contraseña debe contener:\n-Al menos 8 caracteres\n-Al menos una minúscula y una mayúscula\n-Al menos un carácter especial")
             else:
@@ -145,6 +158,8 @@ class CryptoMartinApp:
 
         ctk.CTkButton(frame_portfolio, text="Guardar Transacción", command=guardar_transaccion).grid(row=4, columnspan=3, pady=20)
 
+        ctk.CTkButton(frame_portfolio, text="Cerrar Sesión", command=self.cerrar_sesion).grid(row=5, columnspan=3, pady=20)
+
         self.cambiar_frame(frame_portfolio)
 
     def cargar_transacciones(self, usuario_id):
@@ -152,12 +167,17 @@ class CryptoMartinApp:
             widget.destroy()
 
         transacciones = obtener_transacciones(usuario_id)
-        print(transacciones)
+
         if(transacciones is not None):
             for index, (criptomoneda, cantidad, valor) in enumerate(transacciones):
                 ctk.CTkLabel(self.inversiones_frame, text=criptomoneda).grid(row=index, column=0, padx=10, pady=10)
                 ctk.CTkLabel(self.inversiones_frame, text=cantidad).grid(row=index, column=1, padx=10, pady=10)
                 ctk.CTkLabel(self.inversiones_frame, text=valor).grid(row=index, column=2, padx=10, pady=10)
+
+    def cerrar_sesion(self):
+        self.username = ""
+        self.login_screen()
+
 if __name__ == "__main__":
     app = CryptoMartinApp()
     app.main_window.mainloop()
