@@ -154,3 +154,37 @@ def hash_password_salt(password, salt):
     print(f"Hashed Password Externa: {hashed_pw}")
     print("-------------------------------------------------------")
     return base64.b64encode(hashed_pw).decode('utf-8')
+
+''' Funciones para autenticacion '''
+# Función para crear un MAC usando ChaCha20Poly1305 con depuración
+def crear_mac_chacha20poly1305(llave, nonce, mensaje):
+    print("GENERANDO MAC CON ChaCha20Poly1305")
+    print("-----------------------------------------")
+    print(f"Tipo de algoritmo: ChaCha20Poly1305")
+    print(f"Longitud de clave: {len(llave) * 8} bits")  # longitud en bits
+    print(f"Nonce usado: {nonce.hex()}")
+    chacha = ChaCha20Poly1305(llave)
+    mac = chacha.encrypt(nonce, mensaje, None)
+    print(f"MAC generado con exito!: {mac.hex()}")
+    print("-----------------------------------------")
+    return mac
+
+# Función para verificar el MAC con mensajes de depuración
+def verificar_mac_chacha20poly1305(llave, nonce, mensaje, mac):
+    print("VERIFICANDO MAC CON ChaCha20Poly1305")
+    print("-----------------------------------------")
+    print(f"Tipo de algoritmo: ChaCha20Poly1305")
+    print(f"Longitud de clave: {len(llave) * 8} bits")
+    print(f"Nonce usado: {nonce.hex()}")
+    chacha = ChaCha20Poly1305(llave)
+    try:
+        chacha.decrypt(nonce, mac, None)
+        print("Verificación de MAC con exito: El mensaje es auténtico.")
+        print("-----------------------------------------")
+        return True
+    except Exception as e:
+        print(f"Error de verificación de MAC: {e}")
+        print("La verificación falló: El mensaje puede haber sido alterado.")
+        print("-----------------------------------------")
+        return False
+

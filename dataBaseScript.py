@@ -2,7 +2,11 @@ import sqlite3
 import os
 import hashlib
 import base64
-from criptography import hash_password, generar_par_de_claves, cifrar_con_clave_publica,descifrar_con_clave_privada, hash_password_salt
+from criptography import hash_password, generar_par_de_claves, cifrar_con_clave_publica,descifrar_con_clave_privada, hash_password_salt, crear_mac_chacha20poly1305, verificar_mac_chacha20poly1305
+
+# Llave y nonce fijos para simplificación; en producción, deberían generarse y manejarse de forma segura.
+LLAVE_MAC = os.urandom(32)
+NONCE = os.urandom(12)
 
 # Función para crear la base de datos y las tablas
 def crear_base_datos():
@@ -23,6 +27,7 @@ def crear_base_datos():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 usuario_id INTEGER,
                 datos_cifrados TEXT,
+                mac TEXT,
                 FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
             )
         ''')
@@ -82,8 +87,11 @@ def insertar_transaccion(usuario_id, criptomoneda, cantidad, valor):
             datos = f'{criptomoneda},{cantidad},{valor}'.encode('utf-8')
             datos_cifrados = cifrar_con_clave_publica(clave_publica_pem, datos)
 
-            cursor.execute('INSERT INTO transacciones (usuario_id, datos_cifrados) VALUES (?, ?)',
-                       (usuario_id, datos_cifrados.decode('utf-8')))
+            # Crear MAC de la transacción cifrada
+            mac = crear_mac_chacha20poly1305(LLAVE_MAC, NONCE, datos_cifrados)
+    
+            cursor.execute('INSERT INTO transacciones (usuario_id, datos_cifrados, mac) VALUES (?, ?, ?)',
+                       (usuario_id, datos_cifrados.decode('utf-8'), base64.b64encode(mac).decode('utf-8')))
             conn.commit()
     
     conn.close()
@@ -92,7 +100,7 @@ def insertar_transaccion(usuario_id, criptomoneda, cantidad, valor):
 def obtener_transacciones(usuario_id):
     conn = sqlite3.connect("cryptomartin.db")
     cursor = conn.cursor()
-    cursor.execute('SELECT datos_cifrados FROM transacciones WHERE usuario_id = ?', (usuario_id,))
+    cursor.execute('SELECT datos_cifrados, mac FROM transacciones WHERE usuario_id = ?', (usuario_id,))
     transacciones_cifradas = cursor.fetchall()
     cursor.execute('SELECT correo FROM usuarios WHERE id = ?', (usuario_id,))
     correo = cursor.fetchone()
@@ -103,19 +111,30 @@ def obtener_transacciones(usuario_id):
 
     transacciones_descifradas = []
     for transaccion in transacciones_cifradas:
-        print("TRANSACCION A DESCRIFAR")
-        print(transaccion)
-        # Descifro cada transacción usando la clave privada
-        datos_descifrados = descifrar_con_clave_privada(ruta_clave_privada, transaccion[0])
-        # Convierto los datos descifrados en una lista de criptomoneda, cantidad, valor si hay datos.
-        if(datos_descifrados is not None):
-            valores = datos_descifrados.decode('utf-8').split(',')
-            #Compruebo que solo sean los 3 valores que necesito
-            if len(valores) == 3:
-                criptomoneda, cantidad, valor = valores
-                transacciones_descifradas.append((criptomoneda, float(cantidad), float(valor)))
-        else:
-            return None
+        try:
+            datos_cifrados, mac_base64 = transaccion
+            print("TRANSACCION A DESCRIFAR")
+            print(transaccion)
+
+            # Decodificar el MAC desde base64
+            mac = base64.b64decode(mac_base64)
+
+            # Verificar el MAC antes de descifrar
+            if verificar_mac_chacha20poly1305(LLAVE_MAC, NONCE, datos_cifrados.encode('utf-8'), mac):
+                # Descifro cada transacción usando la clave privada
+                datos_descifrados = descifrar_con_clave_privada(ruta_clave_privada, datos_cifrados)
+        
+                # Convierto los datos descifrados en una lista de criptomoneda, cantidad, valor si hay datos.
+                if(datos_descifrados is not None):
+                    valores = datos_descifrados.decode('utf-8').split(',')
+                    #Compruebo que solo sean los 3 valores que necesito
+                    if len(valores) == 3:
+                        criptomoneda, cantidad, valor = valores
+                        transacciones_descifradas.append((criptomoneda, float(cantidad), float(valor)))
+                else:
+                    return None
+        except ValueError:
+            print("Error: La fila de transacción no contiene los valores esperados (datos_cifrados y mac).")
 
     return transacciones_descifradas
 def es_contrasena_robusta(password):
