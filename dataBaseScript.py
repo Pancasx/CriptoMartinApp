@@ -4,7 +4,7 @@ import hashlib
 import base64
 from criptography import hash_password, generar_par_de_claves, cifrar_con_clave_publica,descifrar_con_clave_privada, hash_password_salt, crear_mac_chacha20poly1305, verificar_mac_chacha20poly1305
 
-# Llave y nonce fijos para simplificación; en producción, deberían generarse y manejarse de forma segura.
+# Llave y nonce fijos para simplificación;
 LLAVE_MAC = os.urandom(32)
 NONCE = os.urandom(12)
 

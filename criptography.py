@@ -3,7 +3,6 @@ import os
 import json
 import base64
 import hashlib
-from json_pathh import data_file
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -11,7 +10,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes
 
-''' Funciones de cifrado y descifrado '''
+''' Funciones de cifrado,descifrado y autenticación '''
 
 #Función para crear par de claves asimétricas (pública y privada)
 def generar_par_de_claves():
@@ -155,7 +154,6 @@ def hash_password_salt(password, salt):
     print("-------------------------------------------------------")
     return base64.b64encode(hashed_pw).decode('utf-8')
 
-''' Funciones para autenticacion '''
 # Función para crear un MAC usando ChaCha20Poly1305 con depuración
 def crear_mac_chacha20poly1305(llave, nonce, mensaje):
     print("GENERANDO MAC CON ChaCha20Poly1305")
