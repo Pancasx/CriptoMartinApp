@@ -40,12 +40,12 @@ def insertar_usuario(correo, password):
 
     clave_privada_pem, clave_publica_pem = generar_par_de_claves()  # Generar claves al registrar
 
-    # Crear firma de datos del usuario
-    datos_a_firmar = f"{correo}{hashed_pw}{base64.b64encode(clave_publica_pem).decode('utf-8')}".encode('utf-8')
+    # Crear firma de los datos del usuario
+    datos_a_firmar = f"{correo}{hashed_pw}".encode('utf-8')
     firma = firmar_datos(clave_privada_pem, datos_a_firmar)
 
-    # Verificar la firma
-    verificar_firma(clave_publica_pem, datos_a_firmar, firma)
+    # Concatenar la firma con la clave pública
+    clave_publica_con_firma = clave_publica_pem + b"\nFIRMA\n" + firma
 
     # Guardo clave privada en el ordenador del usuario (archivo en la carpeta actual del proyecto)
     ruta_clave_privada = f"./{correo}_privada.pem"  # Correo como nombre de archivo
@@ -56,7 +56,7 @@ def insertar_usuario(correo, password):
     cursor = conn.cursor() #creo un cursos para ejecutar comandos en la DB
     #Se inserta la clave pública en la DB
     cursor.execute('INSERT INTO usuarios (correo, salt, hashed_pw, clave_publica) VALUES (?, ?, ?, ?)', 
-                   (correo, salt, hashed_pw, base64.b64encode(clave_publica_pem).decode('utf-8')))
+                   (correo, salt, hashed_pw, base64.b64encode(clave_publica_con_firma).decode('utf-8')))
     conn.commit()
     conn.close()
 
@@ -65,12 +65,22 @@ def insertar_usuario(correo, password):
 def verificar_usuario(correo, password):
     conn = sqlite3.connect("cryptomartin.db")
     cursor = conn.cursor() #creo un cursos para ejecutar comandos en la DB
-    cursor.execute('SELECT salt, hashed_pw FROM usuarios WHERE correo = ?', (correo,)) #Consulta a DB
-    result = cursor.fetchone() #Devuelve tupla salt, hashed_pw (Recupera la primera fila de resultados y como solo habrá una fila recupera el que necesitamos)
+    cursor.execute('SELECT salt, hashed_pw, clave_publica FROM usuarios WHERE correo = ?', (correo,)) #Consulta a DB
+    result = cursor.fetchone() #Devuelve tupla salt, hashed_pw, clave_publica (Recupera la primera fila de resultados y como solo habrá una fila recupera el que necesitamos)
     conn.close()
 
     if result: #Si el correo si está en la base de datos comprobamos que la contraseña sea correcta
-        salt, stored_hashed_pw = result
+        salt, stored_hashed_pw, clave_publica_encoded = result
+        clave_publica_con_firma = base64.b64decode(clave_publica_encoded)
+
+        # Separar la clave pública y la firma
+        clave_publica_pem, firma = clave_publica_con_firma.split(b"\nFIRMA\n")
+
+        # Verificar la firma
+        datos_a_firmar = f"{correo}{stored_hashed_pw}".encode('utf-8')
+        if not verificar_firma(clave_publica_pem, datos_a_firmar, firma):
+            print("Advertencia: La firma de este usuario no es válida.")
+            return False
         
         hashed_pw = hash_password_salt(password,salt)
         if stored_hashed_pw == hashed_pw:
