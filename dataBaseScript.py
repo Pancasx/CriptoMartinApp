@@ -2,7 +2,7 @@ import sqlite3
 import os
 import hashlib
 import base64
-from criptography import hash_password, generar_par_de_claves, cifrar_con_clave_publica,descifrar_con_clave_privada, hash_password_salt, crear_mac_chacha20poly1305, verificar_mac_chacha20poly1305
+from criptography import hash_password, generar_par_de_claves, cifrar_con_clave_publica,descifrar_con_clave_privada, hash_password_salt, crear_mac_chacha20poly1305, verificar_mac_chacha20poly1305, firmar_datos, verificar_firma
 
 # Llave y nonce fijos para simplificación;
 LLAVE_MAC = os.urandom(32)
@@ -39,6 +39,13 @@ def insertar_usuario(correo, password):
     salt, hashed_pw = hash_password(password)
 
     clave_privada_pem, clave_publica_pem = generar_par_de_claves()  # Generar claves al registrar
+
+    # Crear firma de datos del usuario
+    datos_a_firmar = f"{correo}{hashed_pw}{base64.b64encode(clave_publica_pem).decode('utf-8')}".encode('utf-8')
+    firma = firmar_datos(clave_privada_pem, datos_a_firmar)
+
+    # Verificar la firma
+    verificar_firma(clave_publica_pem, datos_a_firmar, firma)
 
     # Guardo clave privada en el ordenador del usuario (archivo en la carpeta actual del proyecto)
     ruta_clave_privada = f"./{correo}_privada.pem"  # Correo como nombre de archivo

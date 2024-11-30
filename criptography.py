@@ -9,6 +9,77 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes
+from cryptography.exceptions import InvalidSignature
+
+''' Firma Digital'''
+# Función para firmar datos con la clave privada
+def firmar_datos(clave_privada_pem, datos):
+    print("PROCESO DE FIRMA DIGITAL:")
+    print("-------------------------------------------------------")
+    # Cargar la clave privada desde PEM
+    clave_privada = serialization.load_pem_private_key(
+        clave_privada_pem,
+        password=None
+    )
+    print("Datos a firmar:")
+    print(datos)
+
+    # Obtener la longitud de la clave privada
+    key_size = clave_privada.key_size
+    print(f"Tipo de algoritmo: RSA con PSS y SHA-256")
+    print(f"Longitud de la clave utilizada: {key_size} bits")
+
+    # Firmar los datos con la clave privada
+    firma = clave_privada.sign(
+        datos,
+        padding.PSS(
+            mgf=padding.MGF1(hashes.SHA256()),
+            salt_length=padding.PSS.MAX_LENGTH,
+        ),
+        hashes.SHA256()
+    )
+    print(f"Firma generada con éxito: {firma.hex()}")
+    print("-------------------------------------------------------")
+    return firma
+
+# Función para verificar la firma con la clave pública
+def verificar_firma(clave_publica_pem, datos, firma):
+    print("PROCESO DE VERIFICACIÓN DE FIRMA DIGITAL:")
+    print("-------------------------------------------------------")
+    # Cargar la clave pública desde PEM
+    clave_publica = serialization.load_pem_public_key(clave_publica_pem)
+    print("Datos a verificar:")
+    print(datos)
+    print("Firma a verificar:")
+    print(firma.hex())
+
+    # Obtener la longitud de la clave pública
+    key_size = clave_publica.key_size
+    print(f"Tipo de algoritmo: RSA con PSS y SHA-256")
+    print(f"Longitud de la clave utilizada: {key_size} bits")
+    
+    # Verificar la firma
+    try:
+        clave_publica.verify(
+            firma,
+            datos,
+            padding.PSS(
+                mgf=padding.MGF1(hashes.SHA256()),
+                salt_length=padding.PSS.MAX_LENGTH,
+            ),
+            hashes.SHA256()
+        )
+        print("La firma es válida.")
+        print("-------------------------------------------------------")
+        return True
+    except InvalidSignature:
+        print("La firma no es válida.")
+        print("-------------------------------------------------------")
+        return False
+    except Exception as e:
+        print(f"Error inesperado durante la verificación de la firma: {e}")
+        print("-------------------------------------------------------")
+        return False
 
 ''' Funciones de cifrado,descifrado y autenticación '''
 
