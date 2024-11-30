@@ -96,6 +96,10 @@ def insertar_transaccion(usuario_id, criptomoneda, cantidad, valor):
     cursor = conn.cursor()
     cursor.execute('SELECT clave_publica FROM usuarios WHERE id = ?', (usuario_id,))
     clave_publica_row = cursor.fetchone()
+    cursor.execute('SELECT correo FROM usuarios WHERE id = ?', (usuario_id,))
+    correo = cursor.fetchone()
+    correo_limpio = ''.join(char for char in correo if char not in [',', '(', ')', ' ']) #Quita parentesis y comas
+    
 
     if clave_publica_row:
             clave_publica_pem = base64.b64decode(clave_publica_row[0])
@@ -104,11 +108,18 @@ def insertar_transaccion(usuario_id, criptomoneda, cantidad, valor):
             datos = f'{criptomoneda},{cantidad},{valor}'.encode('utf-8')
             datos_cifrados = cifrar_con_clave_publica(clave_publica_pem, datos)
 
+            # Crear firma para los datos originales
+            ruta_clave_privada = f"./{correo_limpio}_privada.pem"
+            firma = firmar_datos(open(ruta_clave_privada, 'rb').read(), datos)
+
+            # Concatenar firma con los datos cifrados
+            datos_cifrados_con_firma = datos_cifrados + b"\nFIRMA\n" + firma
+
             # Crear MAC de la transacción cifrada
             mac = crear_mac_chacha20poly1305(LLAVE_MAC, NONCE, datos_cifrados)
     
             cursor.execute('INSERT INTO transacciones (usuario_id, datos_cifrados, mac) VALUES (?, ?, ?)',
-                       (usuario_id, datos_cifrados.decode('utf-8'), base64.b64encode(mac).decode('utf-8')))
+                       (usuario_id, base64.b64encode(datos_cifrados_con_firma).decode('utf-8'), base64.b64encode(mac).decode('utf-8')))
             conn.commit()
     
     conn.close()
@@ -122,22 +133,37 @@ def obtener_transacciones(usuario_id):
     cursor.execute('SELECT correo FROM usuarios WHERE id = ?', (usuario_id,))
     correo = cursor.fetchone()
     correo_limpio = ''.join(char for char in correo if char not in [',', '(', ')', ' ']) #Quita parentesis y comas
-    conn.close()
+    cursor.execute('SELECT clave_publica FROM usuarios WHERE id = ?', (usuario_id,))
+    clave_publica_encoded = cursor.fetchone()
+    
     
     ruta_clave_privada = f"{correo_limpio}_privada.pem"
+    # Decodificar la clave pública
+    clave_publica_pem = base64.b64decode(clave_publica_encoded[0])
 
     transacciones_descifradas = []
     for transaccion in transacciones_cifradas:
         try:
-            datos_cifrados, mac_base64 = transaccion
+            datos_cifrados_base64, mac_base64 = transaccion
             print("TRANSACCION A DESCRIFAR")
             print(transaccion)
+
+            datos_cifrados_con_firma = base64.b64decode(datos_cifrados_base64)
 
             # Decodificar el MAC desde base64
             mac = base64.b64decode(mac_base64)
 
+            # Separar firma y datos cifrados
+            datos_cifrados, firma = datos_cifrados_con_firma.split(b"\nFIRMA\n")
+
+            # Verificar la firma
+            datos_originales = descifrar_con_clave_privada(f"./{correo_limpio}_privada.pem", datos_cifrados)
+            if not verificar_firma(clave_publica_pem, datos_originales, firma):
+                print("Advertencia: La firma de esta transacción no es válida.")
+                continue
+
             # Verificar el MAC antes de descifrar
-            if verificar_mac_chacha20poly1305(LLAVE_MAC, NONCE, datos_cifrados.encode('utf-8'), mac):
+            if verificar_mac_chacha20poly1305(LLAVE_MAC, NONCE, datos_cifrados, mac):
                 # Descifro cada transacción usando la clave privada
                 datos_descifrados = descifrar_con_clave_privada(ruta_clave_privada, datos_cifrados)
         
@@ -152,7 +178,7 @@ def obtener_transacciones(usuario_id):
                     return None
         except ValueError:
             print("Error: La fila de transacción no contiene los valores esperados (datos_cifrados y mac).")
-
+    conn.close()
     return transacciones_descifradas
 def es_contrasena_robusta(password):
     if (len(password) < 8 or
