@@ -2,8 +2,8 @@ import sqlite3
 import os
 import hashlib
 import base64
-from criptography import hash_password, generar_par_de_claves, cifrar_con_clave_publica,descifrar_con_clave_privada, hash_password_salt, crear_mac_chacha20poly1305, verificar_mac_chacha20poly1305, firmar_datos, verificar_firma
-
+from c_criptography import hash_password, generar_par_de_claves, cifrar_con_clave_publica,descifrar_con_clave_privada, hash_password_salt, crear_mac_chacha20poly1305, verificar_mac_chacha20poly1305, firmar_datos, verificar_firma, firmar_clave_publica, verificar_clave_publica_con_ca
+from cryptography import x509
 # Llave y nonce fijos para simplificación;
 LLAVE_MAC = os.urandom(32)
 NONCE = os.urandom(12)
@@ -19,7 +19,8 @@ def crear_base_datos():
                 correo TEXT UNIQUE,
                 salt TEXT,
                 hashed_pw TEXT,
-                clave_publica TEXT
+                clave_publica TEXT,
+                clave_publica_ca TEXT
             )
         ''')
         cursor.execute('''
@@ -35,10 +36,12 @@ def crear_base_datos():
         conn.close()
 
 # Función para insertar un nuevo usuario
-def insertar_usuario(correo, password):
+def insertar_usuario(correo, password, ca_private_key, ca_certificate):
+    # Generar el salt y el hash de la contraseña
     salt, hashed_pw = hash_password(password)
 
-    clave_privada_pem, clave_publica_pem = generar_par_de_claves()  # Generar claves al registrar
+    # Generar el par de claves al registrar
+    clave_privada_pem, clave_publica_pem = generar_par_de_claves()
 
     # Crear firma de los datos del usuario
     datos_a_firmar = f"{correo}{hashed_pw}".encode('utf-8')
@@ -47,46 +50,73 @@ def insertar_usuario(correo, password):
     # Concatenar la firma con la clave pública
     clave_publica_con_firma = clave_publica_pem + b"\nFIRMA\n" + firma
 
-    # Guardo clave privada en el ordenador del usuario (archivo en la carpeta actual del proyecto)
+    # Guardar la clave privada en un archivo local
     ruta_clave_privada = f"./{correo}_privada.pem"  # Correo como nombre de archivo
     with open(ruta_clave_privada, 'wb') as archivo_privado:
         archivo_privado.write(clave_privada_pem)
 
+    # Firmar la clave pública con la CA
+    clave_publica_firmada_ca = firmar_clave_publica(correo, clave_publica_pem, ca_private_key, ca_certificate)
+
+    # Guardar en la base de datos
     conn = sqlite3.connect("cryptomartin.db")
-    cursor = conn.cursor() #creo un cursos para ejecutar comandos en la DB
-    #Se inserta la clave pública en la DB
-    cursor.execute('INSERT INTO usuarios (correo, salt, hashed_pw, clave_publica) VALUES (?, ?, ?, ?)', 
-                   (correo, salt, hashed_pw, base64.b64encode(clave_publica_con_firma).decode('utf-8')))
+    cursor = conn.cursor()
+
+    # Insertar los datos en la base de datos
+    cursor.execute(
+        'INSERT INTO usuarios (correo, salt, hashed_pw, clave_publica, clave_publica_ca) VALUES (?, ?, ?, ?, ?)',
+        (
+            correo,
+            salt,
+            hashed_pw,
+            base64.b64encode(clave_publica_con_firma).decode('utf-8'),
+            base64.b64encode(clave_publica_firmada_ca).decode('utf-8'),
+        )
+    )
+
     conn.commit()
     conn.close()
 
 
 # Función para verificar el usuario y contraseña
-def verificar_usuario(correo, password):
+def verificar_usuario(correo, password, ca_certificate):
     conn = sqlite3.connect("cryptomartin.db")
-    cursor = conn.cursor() #creo un cursos para ejecutar comandos en la DB
-    cursor.execute('SELECT salt, hashed_pw, clave_publica FROM usuarios WHERE correo = ?', (correo,)) #Consulta a DB
-    result = cursor.fetchone() #Devuelve tupla salt, hashed_pw, clave_publica (Recupera la primera fila de resultados y como solo habrá una fila recupera el que necesitamos)
+    cursor = conn.cursor()
+
+    # Recuperar los datos del usuario
+    cursor.execute(
+        'SELECT salt, hashed_pw, clave_publica, clave_publica_ca FROM usuarios WHERE correo = ?',
+        (correo,)
+    )
+    result = cursor.fetchone()
     conn.close()
 
-    if result: #Si el correo si está en la base de datos comprobamos que la contraseña sea correcta
-        salt, stored_hashed_pw, clave_publica_encoded = result
+    if result:
+        salt, stored_hashed_pw, clave_publica_encoded, clave_publica_ca_encoded = result
         clave_publica_con_firma = base64.b64decode(clave_publica_encoded)
+        clave_publica_firmada_ca = base64.b64decode(clave_publica_ca_encoded)
 
         # Separar la clave pública y la firma
         clave_publica_pem, firma = clave_publica_con_firma.split(b"\nFIRMA\n")
 
-        # Verificar la firma
+        # Verificar que la clave pública es válida y firmada por la CA
+        if not verificar_clave_publica_con_ca(ca_certificate, clave_publica_firmada_ca):
+            print("Advertencia: La clave pública no es válida o no está firmada por la CA.")
+            return False
+        print("CERTIFICADO Y FIRMA VÁLIDOS")
+        print("-------------------------------------------------------")
+        # Verificar la firma de los datos del usuario
         datos_a_firmar = f"{correo}{stored_hashed_pw}".encode('utf-8')
         if not verificar_firma(clave_publica_pem, datos_a_firmar, firma):
-            print("Advertencia: La firma de este usuario no es válida.")
+            print("Advertencia: La firma de los datos del usuario no es válida.")
             return False
-        
-        hashed_pw = hash_password_salt(password,salt)
+
+        # Verificar la contraseña
+        hashed_pw = hash_password_salt(password, salt)
         if stored_hashed_pw == hashed_pw:
             print("La contraseña ingresada coincide con la almacenada.")
             return True
-            
+
     print("La contraseña ingresada no coincide con la almacenada")
     return False
 
@@ -108,7 +138,7 @@ def insertar_transaccion(usuario_id, criptomoneda, cantidad, valor):
             datos = f'{criptomoneda},{cantidad},{valor}'.encode('utf-8')
             datos_cifrados = cifrar_con_clave_publica(clave_publica_pem, datos)
 
-            # Crear firma para los datos originales
+            # Creamos firma para los datos originales
             ruta_clave_privada = f"./{correo_limpio}_privada.pem"
             firma = firmar_datos(open(ruta_clave_privada, 'rb').read(), datos)
 

@@ -3,6 +3,7 @@ import customtkinter as ctk
 import re
 from tkinter import messagebox
 from dataBaseScript import crear_base_datos, insertar_usuario, verificar_usuario, insertar_transaccion, obtener_transacciones, es_contrasena_robusta
+from c_criptography import cargar_certificado, cargar_clave_privada
 
 class CryptoMartinApp:
     def __init__(self):
@@ -42,10 +43,11 @@ class CryptoMartinApp:
         password_entry.grid(row=1, column=1, padx=10, pady=20, sticky="w")
 
         def acceso():
+            subordinate_cert = cargar_certificado("subordinate_ca_certificate.pem")
             self.username = username_entry.get()
             password = password_entry.get()
             #Función de dataBase para verificar la existencia del usuario/contraseña en la base de datos
-            if verificar_usuario(self.username, password): 
+            if verificar_usuario(self.username, password, subordinate_cert): 
                 
                 messagebox.showinfo("Login", "Acceso exitoso!")
                 self.portfolio_screen()
@@ -78,6 +80,9 @@ class CryptoMartinApp:
             correo = correo_entry.get()
             password_reg = password_reg_entry.get()
 
+            subordinate_cert = cargar_certificado("subordinate_ca_certificate.pem")
+            ca_private_key = cargar_clave_privada("subordinate_ca_private_key.pem")
+
             #RegEx para correo
             correo_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
 
@@ -87,7 +92,7 @@ class CryptoMartinApp:
                     return
                 if es_contrasena_robusta(password_reg):
                     try:
-                        insertar_usuario(correo, password_reg)
+                        insertar_usuario(correo, password_reg, ca_private_key, subordinate_cert)
                         messagebox.showinfo("Registro", "Registrado con éxito!")
                         self.login_screen()
                     except Exception as e:

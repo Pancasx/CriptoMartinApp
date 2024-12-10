@@ -9,8 +9,109 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes
+from datetime import datetime, timedelta
+from cryptography import x509
+from cryptography.x509 import CertificateBuilder, Name, NameAttribute, SubjectAlternativeName, DNSName
+from cryptography.x509.oid import NameOID
 from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import serialization
+from cryptography.x509 import load_pem_x509_certificate
 
+''' Certificados '''
+# Función para verificar la clave pública con el certificado de la CA
+def verificar_clave_publica_con_ca(ca_certificate, clave_publica_firmada_ca):
+    from cryptography import x509
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.exceptions import InvalidSignature
+    print("PROCESO DE VERIFICACIÓN DE CLAVE PÚBLICA FIRMADA CON CERTIFICADO SUBORDINADO:")
+    print("-------------------------------------------------------")
+    try:
+        # Cargar el certificado firmado de la clave pública
+        certificado_usuario = x509.load_pem_x509_certificate(clave_publica_firmada_ca)
+
+        # Verificar que el certificado fue emitido por la CA
+        ca_certificate.public_key().verify(
+            certificado_usuario.signature,
+            certificado_usuario.tbs_certificate_bytes,
+            padding.PKCS1v15(),
+            certificado_usuario.signature_hash_algorithm,
+        )
+
+        # Verificar que el certificado no ha expirado
+        if certificado_usuario.not_valid_before <= datetime.utcnow() <= certificado_usuario.not_valid_after:
+            return True
+        else:
+            print("Advertencia: El certificado de la clave pública ha expirado o no es válido aún.")
+            return False
+
+    except InvalidSignature:
+        print("Advertencia: La firma del certificado no coincide.")
+        return False
+    except Exception as e:
+        print(f"Error al verificar el certificado: {e}")
+        return False
+    print("-------------------------------------------------------")
+# Función para firmar la clave pública con el certificado de la CA subordinada
+def firmar_clave_publica(correo, clave_publica_pem, ca_private_key, ca_certificate):
+    print("PROCESO DE FIRMADO DE CLAVE PÚBLICA USUARIO CON CERTIFICADO SUBORDINADO:")
+    print("-------------------------------------------------------")
+    # Crear el certificado para la clave pública del usuario
+    subject = x509.Name([
+        x509.NameAttribute(NameOID.COMMON_NAME, correo),
+    ])
+    issuer = ca_certificate.subject  # La autoridad subordinada firma el certificado
+
+    certificado_usuario = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(issuer)
+        .public_key(serialization.load_pem_public_key(clave_publica_pem))
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.utcnow())
+        .not_valid_after(datetime.utcnow() + timedelta(days=365))  # Certificado válido por 1 año
+        .sign(ca_private_key, hashes.SHA256())
+    )
+    print(certificado_usuario)
+    print("-------------------------------------------------------")
+
+    return certificado_usuario.public_bytes(encoding=serialization.Encoding.PEM)
+
+# Función para cargar un certificado desde un archivo
+def cargar_certificado(nombre_archivo):
+    try:
+        with open(nombre_archivo, "rb") as archivo_certificado:
+            certificado_pem = archivo_certificado.read()
+        certificado = load_pem_x509_certificate(certificado_pem)
+        print("-------------------------------------------------------")
+        print(f"Certificado cargado exitosamente desde {nombre_archivo}.")
+        print("-------------------------------------------------------")
+        return certificado
+    except FileNotFoundError:
+        print(f"Error: No se encontró el archivo {nombre_archivo}.")
+        return None
+    except Exception as e:
+        print(f"Error al cargar el certificado: {e}")
+        return None
+# Función para cargar una clave privada desde un archivo
+def cargar_clave_privada(nombre_archivo, password=None):
+    try:
+        with open(nombre_archivo, "rb") as archivo_clave_privada:
+            clave_privada_pem = archivo_clave_privada.read()
+        clave_privada = serialization.load_pem_private_key(
+            clave_privada_pem,
+            password=password.encode('utf-8') if password else None
+        )
+        print("-------------------------------------------------------")
+        print(f"Clave privada cargada exitosamente desde {nombre_archivo}.")
+        print("-------------------------------------------------------")
+        return clave_privada
+    except FileNotFoundError:
+        print(f"Error: No se encontró el archivo {nombre_archivo}.")
+        return None
+    except Exception as e:
+        print(f"Error al cargar la clave privada: {e}")
+        return None
+    
 ''' Firma Digital'''
 # Función para firmar datos con la clave privada
 def firmar_datos(clave_privada_pem, datos):
